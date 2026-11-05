@@ -307,7 +307,8 @@ fn object_step(c: &mut Core, rng: &mut Rng) -> String {
     let p = c.sel.head;
     match rng.below(5) {
         0 => {
-            c.insert_equation(rng.pick(&["x^2", "a<b", ""]));
+            let s = *rng.pick(&["x^2", "a<b", ""]);
+            c.insert_equation(s);
             "insert_equation".into()
         }
         1 => {
@@ -323,7 +324,8 @@ fn object_step(c: &mut Core, rng: &mut Rng) -> String {
             "insert_doc_link".into()
         }
         _ => {
-            c.set_equation_source(p, rng.pick(&["y", "\\frac{1}{2}", "x^2"]));
+            let s = *rng.pick(&["y", "\\frac{1}{2}", "x^2"]);
+            c.set_equation_source(p, s);
             format!("set_equation_source({p:?})")
         }
     }
