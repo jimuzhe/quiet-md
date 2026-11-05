@@ -1343,7 +1343,8 @@ impl Editor {
         let more_height = px(2. + 2. * crate::editor_ui::MENU_PAD_Y + 2. * crate::editor_ui::MENU_ROW_H);
         let more_above = (pos.y - px(10.)).max(px(0.));
         let more_below = (window.viewport_size().height - pos.y - px(52.)).max(px(0.));
-        let more_up = if above && more_above >= more_height { true } else if more_below >= more_height { false } else { more_above > more_below };
+        // Down unless it doesn't fit there, like the other dropdowns.
+        let more_up = more_below < more_height && more_above > more_below;
         let drop = |m: Menu, x: f32| {
             div()
                 .id("tb-drop")
