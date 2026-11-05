@@ -827,6 +827,33 @@ pub fn continuous_corner_mask(radius: f32, color: Hsla) -> impl IntoElement {
     }).absolute().inset_0()
 }
 
+/// A capsule filled to `fraction` from the left, its edge a moving wave (the
+/// update pill's download progress). Redraws every frame while shown.
+pub fn wave_fill(fraction: f32, color: Hsla) -> impl IntoElement {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    let t = START.get_or_init(std::time::Instant::now).elapsed().as_secs_f32();
+    canvas(|bounds, _, _| bounds, move |_, b, window, _| {
+        window.request_animation_frame();
+        let f = fraction.clamp(0., 1.);
+        if f <= 0. { return }
+        let (x, y) = (f32::from(b.left()), f32::from(b.top()));
+        let (w, h) = (f32::from(b.size.width), f32::from(b.size.height));
+        let r = h / 2.;
+        // The capsule's left and right walls at height v (0 = top).
+        let wall = |v: f32| (r * r - (v - r).powi(2)).max(0.).sqrt();
+        // A 2pt swell, one crest per pill height, drifting downwards; flat when full.
+        let amp = if f >= 1. { 0. } else { 2. };
+        let edge = |v: f32| (x + f * w + amp * (std::f32::consts::TAU * v / h - t * 5.).sin()).clamp(x + r - wall(v), x + w - r + wall(v));
+        const N: usize = 24;
+        let mut path = PathBuilder::fill();
+        path.move_to(point(px(edge(0.)), px(y)));
+        for i in 1..=N { let v = h * i as f32 / N as f32; path.line_to(point(px(edge(v)), px(y + v))); }
+        for i in (0..=N).rev() { let v = h * i as f32 / N as f32; path.line_to(point(px(x + r - wall(v)), px(y + v))); }
+        path.close();
+        if let Ok(path) = path.build() { window.paint_path(path, color); }
+    }).absolute().inset_0()
+}
+
 pub fn continuous_page(radius: f32) -> Div { continuous_surface(radius, Theme::bg_body()) }
 
 pub fn continuous_surface(radius: f32, color: Hsla) -> Div {

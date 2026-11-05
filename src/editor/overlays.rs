@@ -191,7 +191,7 @@ fn grid_rows<T>(cells: Vec<(menus::SlashKind, T)>) -> Vec<Vec<T>> {
     let mut rows: Vec<Vec<T>> = vec![];
     for (_, c) in cells {
         match rows.last_mut() {
-            Some(r) if r.len() < 6 => r.push(c),
+            Some(r) if r.len() < menus::GRID_COLS => r.push(c),
             _ => rows.push(vec![c]),
         }
     }
@@ -348,7 +348,7 @@ impl Editor {
         }
         match &self.menu {
             Some(Menu::Block { block, .. }) | Some(Menu::Add { block, .. }) => Some(*block),
-            _ => self.hover.filter(|_| !self.hover_clipped),
+            _ => self.hover.filter(|_| !self.hover_clipped && !self.typing),
         }
     }
 

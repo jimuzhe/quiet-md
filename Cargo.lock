@@ -1701,7 +1701,7 @@ dependencies = [
 
 [[package]]
 name = "fdl_core"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "dirs 7.0.0",
@@ -4248,7 +4248,7 @@ dependencies = [
 
 [[package]]
 name = "quiet_md"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "base64",
@@ -4260,6 +4260,7 @@ dependencies = [
  "html5ever",
  "image",
  "katex-rs",
+ "log",
  "markup5ever_rcdom",
  "minisign-verify",
  "objc",
@@ -4271,6 +4272,7 @@ dependencies = [
  "serde_json",
  "unicode-segmentation",
  "uuid",
+ "windows-registry 0.5.3",
 ]
 
 [[package]]

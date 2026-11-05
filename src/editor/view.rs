@@ -142,6 +142,8 @@ pub struct Editor {
     pub hover: Option<BlockId>,
     /// The hovered block's top has scrolled out of the page viewport (last frame).
     pub hover_clipped: bool,
+    /// An edit since the pointer last moved: the hover handle hides until it moves.
+    pub typing: bool,
     /// Blocks that can show the hover handle (set during render).
     pub handle_targets: Vec<BlockId>,
     /// Painted bounds of the callout bar and its colour panel (last frame).
@@ -372,6 +374,7 @@ impl Editor {
             gap_press: None,
             hover: None,
             hover_clipped: false,
+            typing: false,
             handle_targets: vec![],
             callout_zone: Rc::default(),
             caret_visible: true,
@@ -496,6 +499,7 @@ impl Editor {
         self.core.reveal_caret();
         if self.core.dirty {
             self.core.dirty = false;
+            self.typing = true;
             self.hide_link_card(cx);
             cx.emit(EditorEvent::Changed);
             self.refresh_find(false, cx);
@@ -667,7 +671,7 @@ impl Editor {
             return match key {
                 ListKey::Up | ListKey::Down => self.mention_key(Some(matches!(key, ListKey::Up)), false, false, window, cx),
                 ListKey::Enter => self.mention_key(None, true, false, window, cx),
-                ListKey::Close => false,
+                ListKey::Close | ListKey::Left | ListKey::Right => false,
                 ListKey::CloseAndPass => {
                     self.mention = None;
                     false
@@ -714,17 +718,26 @@ impl Editor {
             }
             e.slash_scroll.scroll_to_item(child);
         };
+        // The icon grid (rows of GRID_COLS, then the list): ← / → step through
+        // items in order, ↑ / ↓ move a whole row inside the grid (issue #4).
+        let cells = if grid { results.iter().take_while(|i| menus::SLASH_ITEMS[**i].group == 0).count() } else { 0 };
+        let (prev, next) = (if cur >= n { n.saturating_sub(1) } else { (cur + n - 1) % n.max(1) }, if cur >= n { 0 } else { (cur + 1) % n.max(1) });
+        let key = match key {
+            ListKey::Left | ListKey::Right if !grid => ListKey::Close,
+            k => k,
+        };
         match key {
-            ListKey::Up => {
-                if n > 0 {
-                    set(self, if cur >= n { n - 1 } else { (cur + n - 1) % n });
-                }
-            }
-            ListKey::Down => {
-                if n > 0 {
-                    set(self, if cur >= n { 0 } else { (cur + 1) % n });
-                }
-            }
+            _ if n == 0 && matches!(key, ListKey::Up | ListKey::Down | ListKey::Left | ListKey::Right) => {}
+            ListKey::Left => set(self, prev),
+            ListKey::Right => set(self, next),
+            // Up: a row up in the grid; from the list's first item, back to the
+            // grid's last row; from the grid's top row, around to the last item.
+            ListKey::Up if cur < cells => set(self, if cur >= menus::GRID_COLS { cur - menus::GRID_COLS } else { n - 1 }),
+            ListKey::Up if cur == cells && cells > 0 => set(self, (cells - 1) / menus::GRID_COLS * menus::GRID_COLS),
+            ListKey::Up => set(self, prev),
+            // Down: a row down in the grid; from its last row, into the list.
+            ListKey::Down if cur < cells => set(self, if cur + menus::GRID_COLS < cells { cur + menus::GRID_COLS } else if cells < n { cells } else { 0 }),
+            ListKey::Down => set(self, next),
             ListKey::Enter => match results.get(cur) {
                 Some(i) => {
                     let kind = menus::SLASH_ITEMS[*i].kind;
@@ -1288,7 +1301,7 @@ impl Editor {
     // ---- action handlers
 
     fn on_move_left(&mut self, _: &k::MoveLeft, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.guard(window, cx) || self.list_menu_key(ListKey::Close, window, cx) {
+        if !self.guard(window, cx) || self.list_menu_key(ListKey::Left, window, cx) {
             return;
         }
         if self.core.in_block_mode() {
@@ -1301,7 +1314,7 @@ impl Editor {
     }
 
     fn on_move_right(&mut self, _: &k::MoveRight, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.guard(window, cx) || self.list_menu_key(ListKey::Close, window, cx) {
+        if !self.guard(window, cx) || self.list_menu_key(ListKey::Right, window, cx) {
             return;
         }
         if self.core.in_block_mode() {
@@ -1785,10 +1798,11 @@ impl Editor {
                     ClipboardEntry::String(s) => Some(s),
                     _ => None,
                 });
-                let image = item.entries().iter().find_map(|e| match e {
+                let images: Vec<_> = item.entries().iter().filter_map(|e| match e {
                     ClipboardEntry::Image(img) => Some(img),
                     _ => None,
-                });
+                }).collect();
+                let image = (!images.is_empty()).then_some(images);
                 (s.map(|s| s.text().clone()), s.and_then(|s| s.metadata_json::<String>()), image)
             }
             (None, None) => return,
@@ -1835,18 +1849,20 @@ impl Editor {
             self.core.paste_blocks(b);
         } else if let Some(s) = text.filter(|s| !s.is_empty()) {
             self.core.paste_markdown(&s);
-        } else if let Some(img) = image {
-            let ext = match img.format {
-                ImageFormat::Jpeg => "jpg",
-                ImageFormat::Gif => "gif",
-                ImageFormat::Webp => "webp",
-                ImageFormat::Svg => "svg",
-                ImageFormat::Bmp => "bmp",
-                ImageFormat::Tiff => "tiff",
-                _ => "png",
-            };
-            let bytes = img.bytes.clone();
-            self.insert_image_bytes(&bytes, ext, window, cx);
+        } else if let Some(images) = image {
+            // Several copied image files paste one after another.
+            for img in images {
+                let ext = match img.format {
+                    ImageFormat::Jpeg => "jpg",
+                    ImageFormat::Gif => "gif",
+                    ImageFormat::Webp => "webp",
+                    ImageFormat::Svg => "svg",
+                    ImageFormat::Bmp => "bmp",
+                    ImageFormat::Tiff => "tiff",
+                    _ => "png",
+                };
+                self.insert_image_bytes(&img.bytes, ext, window, cx);
+            }
         }
         if let Some(msg) = self.core.notice.take() {
             self.toast(msg, cx);
@@ -2266,6 +2282,10 @@ impl Editor {
             }
         }
         let p = ev.position;
+        if self.typing {
+            self.typing = false;
+            cx.notify();
+        }
         // A clicked callout dropdown stays open until a selection or outside click.
         if matches!(self.menu, Some(Menu::CalloutColor { .. })) {
             return;
@@ -2458,6 +2478,9 @@ impl Editor {
 enum ListKey {
     Up,
     Down,
+    /// ← / →: step through the icon grid; elsewhere they close the menu.
+    Left,
+    Right,
     Enter,
     Close,
     CloseAndPass,
